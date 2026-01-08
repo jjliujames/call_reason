@@ -101,95 +101,6 @@
         </div>
       </div>
 
-      <!-- Drill-Down Tabs -->
-      <div class="card" style="margin-top: 24px;">
-        <div class="tabs">
-          <button
-            class="tab"
-            :class="{ active: activeTab === 'line_of_business' }"
-            @click="changeTab('line_of_business')"
-          >
-            By Line of Business
-          </button>
-          <button
-            class="tab"
-            :class="{ active: activeTab === 'call_reason' }"
-            @click="changeTab('call_reason')"
-          >
-            By Call Reason
-          </button>
-          <button
-            class="tab"
-            :class="{ active: activeTab === 'product' }"
-            @click="changeTab('product')"
-          >
-            By Product
-          </button>
-        </div>
-
-        <div class="card-body">
-          <div v-if="loadingBreakdown" class="loading">Loading breakdown...</div>
-
-          <table v-else-if="breakdown.length" class="data-table">
-            <thead>
-              <tr>
-                <th>{{ getColumnLabel() }}</th>
-                <th>Interactions</th>
-                <th>Complaints</th>
-                <th>Complaint Rate</th>
-                <th>Avg Handle Time</th>
-                <th>FCR Rate</th>
-                <th>Total Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in breakdown"
-                :key="item.label"
-                @click="handleDrillDown(item)"
-              >
-                <td>
-                  <span class="link">{{ item.label }}</span>
-                </td>
-                <td>{{ item.count.toLocaleString() }}</td>
-                <td>{{ item.complaint_count.toLocaleString() }}</td>
-                <td>
-                  <span :class="['badge', item.complaint_rate > 25 ? 'badge-red' : item.complaint_rate > 15 ? 'badge-orange' : 'badge-green']">
-                    {{ item.complaint_rate }}%
-                  </span>
-                </td>
-                <td>{{ item.avg_handling_time_minutes }} min</td>
-                <td>
-                  <span :class="['badge', item.fcr_rate < 60 ? 'badge-red' : item.fcr_rate < 75 ? 'badge-orange' : 'badge-green']">
-                    {{ item.fcr_rate }}%
-                  </span>
-                </td>
-                <td>${{ item.total_cost.toLocaleString() }}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div v-else class="empty-state">No breakdown data available</div>
-        </div>
-      </div>
-
-      <!-- Bar Chart -->
-      <div class="card" style="margin-top: 24px;">
-        <div class="card-header">
-          <span class="card-title">Volume by {{ getColumnLabel() }}</span>
-        </div>
-        <div class="card-body">
-          <apexchart
-            v-if="breakdown.length"
-            type="bar"
-            height="350"
-            :options="barChartOptions"
-            :series="barSeries"
-          />
-          <div v-else class="empty-state">No data</div>
-        </div>
-      </div>
-
       <!-- Analysis Section -->
       <AnalysisSection
         :filters="store.globalFilters"
@@ -202,26 +113,21 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
 import BreadcrumbBar from '../components/BreadcrumbBar.vue'
 import GlobalFilterBar from '../components/GlobalFilterBar.vue'
 import KpiCard from '../components/KpiCard.vue'
 import AnalysisSection from '../components/AnalysisSection.vue'
 import { useMainStore } from '../stores/main'
-import { getMetrics, getTrends, getBreakdown, getMetricsComparison, getWeeklyTrends } from '../services/api'
+import { getMetrics, getTrends, getMetricsComparison, getWeeklyTrends } from '../services/api'
 
-const router = useRouter()
 const store = useMainStore()
 
 const loading = ref(false)
-const loadingBreakdown = ref(false)
 const loadingTrend = ref(false)
 
 const metrics = ref({})
 const comparison = ref(null)
 const trendData = ref({ labels: [], volume: [], complaint_volume: [] })
-const breakdown = ref([])
-const activeTab = ref('line_of_business')
 const selectedMetric = ref('volume')
 const weeklyTrendData = ref(null)
 
@@ -323,29 +229,6 @@ function getWowClass(change) {
   return isGood ? 'positive' : 'negative'
 }
 
-const barChartOptions = computed(() => ({
-  chart: { toolbar: { show: false } },
-  colors: ['#00843D', '#DC3545'],
-  plotOptions: { bar: { horizontal: true, barHeight: '70%' } },
-  dataLabels: { enabled: false },
-  xaxis: { categories: breakdown.value.map(b => b.label.length > 25 ? b.label.slice(0, 25) + '...' : b.label) },
-  legend: { position: 'top' }
-}))
-
-const barSeries = computed(() => [
-  { name: 'Total Interactions', data: breakdown.value.map(b => b.count) },
-  { name: 'Complaints', data: breakdown.value.map(b => b.complaint_count) }
-])
-
-function getColumnLabel() {
-  switch (activeTab.value) {
-    case 'line_of_business': return 'Line of Business'
-    case 'call_reason': return 'Call Reason'
-    case 'product': return 'Product'
-    default: return 'Category'
-  }
-}
-
 async function loadData() {
   loading.value = true
   try {
@@ -364,50 +247,11 @@ async function loadData() {
     metrics.value = metricsData
     trendData.value = trendsData
     comparison.value = comparisonData
-
-    await loadBreakdown()
   } catch (error) {
     console.error('Failed to load data:', error)
   } finally {
     loading.value = false
   }
-}
-
-async function loadBreakdown() {
-  loadingBreakdown.value = true
-  try {
-    const result = await getBreakdown(store.globalFilters, activeTab.value)
-    breakdown.value = result.data
-  } catch (error) {
-    console.error('Failed to load breakdown:', error)
-    breakdown.value = []
-  } finally {
-    loadingBreakdown.value = false
-  }
-}
-
-function changeTab(tab) {
-  activeTab.value = tab
-  loadBreakdown()
-}
-
-function handleDrillDown(item) {
-  const newFilters = { ...store.globalFilters }
-
-  if (activeTab.value === 'line_of_business') {
-    newFilters.lineOfBusiness = item.label
-    activeTab.value = 'call_reason'
-  } else if (activeTab.value === 'call_reason') {
-    newFilters.callReason = item.label
-    activeTab.value = 'product'
-  } else if (activeTab.value === 'product') {
-    newFilters.product = item.label
-    router.push('/interactions')
-    return
-  }
-
-  store.setGlobalFilters(newFilters)
-  loadData()
 }
 
 function handleFilterChange() {
@@ -446,14 +290,6 @@ function handleAnalysisFilterChange(newFilters) {
 }
 
 onMounted(async () => {
-  // Determine starting tab based on current filters
-  if (store.globalFilters.callReason) {
-    activeTab.value = 'product'
-  } else if (store.globalFilters.lineOfBusiness) {
-    activeTab.value = 'call_reason'
-  } else {
-    activeTab.value = 'line_of_business'
-  }
   await loadData()
   // Load initial weekly trend for default metric
   loadWeeklyTrend(selectedMetric.value)
