@@ -2,7 +2,7 @@
   <aside class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">TD</div>
-      <div class="logo-text">Call Center<br/>Insights</div>
+      <div class="logo-text">VoC<br/>Insights</div>
     </div>
 
     <nav class="sidebar-nav">
