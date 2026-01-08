@@ -335,6 +335,80 @@ def analyze_root_cause(request: RootCauseRequest):
     return result
 
 
+@app.get("/api/root_cause/trends")
+def get_root_cause_trends(
+    root_cause: str = Query(..., description="Root cause category to get trends for"),
+    weeks: int = Query(8, ge=4, le=16),
+    line_of_business: Optional[str] = Query(None, alias="lob"),
+    call_reason: Optional[str] = None,
+    product: Optional[str] = None,
+    region: Optional[str] = None
+):
+    """Return weekly trends for a specific root cause category."""
+    all_interactions = get_all_interactions()
+
+    # Calculate date range for the past N weeks
+    end_date = datetime.now()
+    start_date = end_date - timedelta(weeks=weeks)
+
+    # Filter to complaints only and apply other filters
+    filtered = filter_interactions(
+        all_interactions,
+        from_date=start_date.strftime("%Y-%m-%d"),
+        to_date=end_date.strftime("%Y-%m-%d"),
+        line_of_business=line_of_business,
+        call_reason=call_reason,
+        product=product,
+        region=region,
+        complaints_only=True
+    )
+
+    # Group by week (ISO week number)
+    weekly = defaultdict(lambda: {"total": 0, "root_cause_count": 0})
+
+    for interaction in filtered:
+        date = datetime.fromisoformat(interaction["timestamp"].replace("Z", ""))
+        week_key = f"{date.isocalendar()[0]}-W{date.isocalendar()[1]:02d}"
+
+        weekly[week_key]["total"] += 1
+        # Check if this complaint matches the root cause
+        if interaction.get("root_cause_label") == root_cause:
+            weekly[week_key]["root_cause_count"] += 1
+
+    # Build response sorted by week
+    sorted_weeks = sorted(weekly.keys())
+
+    labels = []
+    values = []
+    percentages = []
+
+    for week_key in sorted_weeks:
+        w = weekly[week_key]
+        labels.append(week_key)
+        values.append(w["root_cause_count"])
+        percentages.append(round(w["root_cause_count"] / w["total"] * 100, 1) if w["total"] > 0 else 0)
+
+    # Calculate WoW change
+    wow_change = None
+    if len(values) >= 2:
+        current = values[-1]
+        previous = values[-2]
+        if previous != 0:
+            wow_change = round((current - previous) / previous * 100, 1)
+
+    return {
+        "root_cause": root_cause,
+        "labels": labels,
+        "values": values,
+        "percentages": percentages,
+        "weeks": weeks,
+        "wow_change": wow_change,
+        "current_value": values[-1] if values else None,
+        "previous_value": values[-2] if len(values) >= 2 else None,
+        "total_count": sum(values)
+    }
+
+
 @app.get("/api/metrics")
 def get_metrics(
     from_date: Optional[str] = Query(None, alias="from"),

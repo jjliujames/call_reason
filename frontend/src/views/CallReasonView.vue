@@ -189,6 +189,13 @@
           <div v-else class="empty-state">No data</div>
         </div>
       </div>
+
+      <!-- Analysis Section -->
+      <AnalysisSection
+        :filters="store.globalFilters"
+        :tabs="['trends', 'segments', 'products', 'root_causes']"
+        @filter-change="handleAnalysisFilterChange"
+      />
     </div>
   </div>
 </template>
@@ -199,6 +206,7 @@ import { useRouter } from 'vue-router'
 import BreadcrumbBar from '../components/BreadcrumbBar.vue'
 import GlobalFilterBar from '../components/GlobalFilterBar.vue'
 import KpiCard from '../components/KpiCard.vue'
+import AnalysisSection from '../components/AnalysisSection.vue'
 import { useMainStore } from '../stores/main'
 import { getMetrics, getTrends, getBreakdown, getMetricsComparison, getWeeklyTrends } from '../services/api'
 
@@ -429,6 +437,12 @@ async function loadWeeklyTrend(metricKey) {
   } finally {
     loadingTrend.value = false
   }
+}
+
+function handleAnalysisFilterChange(newFilters) {
+  // Update global filters when Analysis Section selection changes
+  store.setGlobalFilters(newFilters)
+  loadData()
 }
 
 onMounted(async () => {

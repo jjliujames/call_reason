@@ -211,8 +211,15 @@
 
       <!-- Root Cause Results -->
       <div v-if="rootCauseResult" style="margin-top: 24px;">
-        <RootCauseCards :result="rootCauseResult" />
+        <RootCauseCards :result="rootCauseResult" :filters="complaintsFilters" />
       </div>
+
+      <!-- Analysis Section -->
+      <AnalysisSection
+        :filters="complaintsFilters"
+        :tabs="['trends', 'segments', 'products', 'root_causes']"
+        @filter-change="handleAnalysisFilterChange"
+      />
     </div>
   </div>
 </template>
@@ -227,6 +234,7 @@ import RootCauseCards from '../components/RootCauseCards.vue'
 import KpiCard from '../components/KpiCard.vue'
 import SeverityPyramid from '../components/SeverityPyramid.vue'
 import ComplaintHeatmap from '../components/ComplaintHeatmap.vue'
+import AnalysisSection from '../components/AnalysisSection.vue'
 import { useMainStore } from '../stores/main'
 import { getMetrics, getTrends, getBreakdown, getInteractions, analyzeRootCauses, getMetricsComparison, getSeverityBreakdown, getComplaintHeatmap, getWeeklyTrends } from '../services/api'
 
@@ -261,6 +269,12 @@ const metricLabels = {
 
 const selectedMetricLabel = computed(() => metricLabels[selectedMetric.value] || 'Metric')
 const selectedMetricTrend = computed(() => weeklyTrendData.value)
+
+// Filters for complaints analysis (always include complaintsOnly)
+const complaintsFilters = computed(() => ({
+  ...store.globalFilters,
+  complaintsOnly: true
+}))
 
 const maxSeverityCount = computed(() => {
   return Math.max(...severityData.value.map(s => s.count), 1)
@@ -500,6 +514,12 @@ async function loadWeeklyTrend(metricKey) {
   } finally {
     loadingTrend.value = false
   }
+}
+
+function handleAnalysisFilterChange(newFilters) {
+  // Update global filters when Analysis Section selection changes
+  store.setGlobalFilters(newFilters)
+  loadData()
 }
 
 onMounted(async () => {

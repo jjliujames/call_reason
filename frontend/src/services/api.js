@@ -101,6 +101,19 @@ export async function getWeeklyTrends(metric, filters = {}, weeks = 8) {
   return response.data
 }
 
+// Root Cause Weekly Trends
+export async function getRootCauseTrends(rootCause, filters = {}, weeks = 8) {
+  const params = { root_cause: rootCause, weeks }
+
+  if (filters.lineOfBusiness) params.lob = filters.lineOfBusiness
+  if (filters.callReason) params.call_reason = filters.callReason
+  if (filters.product) params.product = filters.product
+  if (filters.region) params.region = filters.region
+
+  const response = await api.get('/root_cause/trends', { params })
+  return response.data
+}
+
 export async function getBreakdown(filters = {}, groupBy = 'line_of_business') {
   const params = { group_by: groupBy }
 
