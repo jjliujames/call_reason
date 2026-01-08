@@ -800,6 +800,35 @@ body {
   text-decoration: underline;
 }
 
+/* WoW Badge for Trends */
+.trend-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wow-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.wow-badge.positive {
+  background: #D1FAE5;
+  color: #047857;
+}
+
+.wow-badge.negative {
+  background: #FEE2E2;
+  color: #B91C1C;
+}
+
+.wow-badge.neutral {
+  background: var(--td-gray-200);
+  color: var(--td-gray-600);
+}
+
 /* Scrollable Card Content */
 .card-scroll {
   max-height: 300px;

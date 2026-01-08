@@ -21,15 +21,9 @@
           format="number"
           :delta="comparison?.deltas?.total_complaints?.absolute"
           :is-positive-good="false"
-          variant="danger"
-          :sparkline-data="trendData.complaint_volume"
-          sparkline-color="#DC3545"
-          :expandable="true"
-          metric-key="volume"
-          :weekly-trend-data="weeklyTrends.volume"
-          :loading-trend="loadingTrend === 'volume'"
-          @expand="handleKpiExpand"
-          @collapse="handleKpiCollapse"
+          :variant="selectedMetric === 'volume' ? 'highlight' : 'danger'"
+          :clickable="true"
+          @click="selectMetric('volume')"
         />
         <KpiCard
           label="Complaint Rate"
@@ -37,13 +31,9 @@
           format="percent"
           :delta="comparison?.deltas?.complaint_rate?.absolute"
           :is-positive-good="false"
-          variant="warning"
-          :expandable="true"
-          metric-key="complaint_rate"
-          :weekly-trend-data="weeklyTrends.complaint_rate"
-          :loading-trend="loadingTrend === 'complaint_rate'"
-          @expand="handleKpiExpand"
-          @collapse="handleKpiCollapse"
+          :variant="selectedMetric === 'complaint_rate' ? 'highlight' : 'warning'"
+          :clickable="true"
+          @click="selectMetric('complaint_rate')"
         />
         <KpiCard
           label="High Severity"
@@ -51,14 +41,10 @@
           format="number"
           :delta="comparison?.deltas?.high_severity_count?.absolute"
           :is-positive-good="false"
-          variant="danger"
+          :variant="selectedMetric === 'high_severity' ? 'highlight' : 'danger'"
           tooltip="Critical complaints requiring immediate attention"
-          :expandable="true"
-          metric-key="volume"
-          :weekly-trend-data="weeklyTrends.high_severity"
-          :loading-trend="loadingTrend === 'high_severity'"
-          @expand="(key) => handleKpiExpand('high_severity')"
-          @collapse="handleKpiCollapse"
+          :clickable="true"
+          @click="selectMetric('high_severity')"
         />
         <KpiCard
           label="Escalation Rate"
@@ -66,12 +52,9 @@
           format="percent"
           :delta="comparison?.deltas?.escalation_rate?.absolute"
           :is-positive-good="false"
-          :expandable="true"
-          metric-key="escalation_rate"
-          :weekly-trend-data="weeklyTrends.escalation_rate"
-          :loading-trend="loadingTrend === 'escalation_rate'"
-          @expand="handleKpiExpand"
-          @collapse="handleKpiCollapse"
+          :variant="selectedMetric === 'escalation_rate' ? 'highlight' : 'default'"
+          :clickable="true"
+          @click="selectMetric('escalation_rate')"
         />
         <KpiCard
           label="Avg Handle Time"
@@ -79,12 +62,9 @@
           format="time"
           :delta="comparison?.deltas?.avg_handling_time_minutes?.absolute"
           :is-positive-good="false"
-          :expandable="true"
-          metric-key="avg_handling_time"
-          :weekly-trend-data="weeklyTrends.avg_handling_time"
-          :loading-trend="loadingTrend === 'avg_handling_time'"
-          @expand="handleKpiExpand"
-          @collapse="handleKpiCollapse"
+          :variant="selectedMetric === 'avg_handling_time' ? 'highlight' : 'default'"
+          :clickable="true"
+          @click="selectMetric('avg_handling_time')"
         />
         <KpiCard
           label="FCR Rate"
@@ -92,13 +72,9 @@
           format="percent"
           :delta="comparison?.deltas?.fcr_rate?.absolute"
           :is-positive-good="true"
-          :variant="(metrics.fcr_rate || 0) < 50 ? 'danger' : (metrics.fcr_rate || 0) < 65 ? 'warning' : 'success'"
-          :expandable="true"
-          metric-key="fcr_rate"
-          :weekly-trend-data="weeklyTrends.fcr_rate"
-          :loading-trend="loadingTrend === 'fcr_rate'"
-          @expand="handleKpiExpand"
-          @collapse="handleKpiCollapse"
+          :variant="selectedMetric === 'fcr_rate' ? 'highlight' : ((metrics.fcr_rate || 0) < 50 ? 'danger' : (metrics.fcr_rate || 0) < 65 ? 'warning' : 'success')"
+          :clickable="true"
+          @click="selectMetric('fcr_rate')"
         />
       </div>
 
@@ -153,20 +129,26 @@
         </div>
       </div>
 
-      <!-- Complaint Trend -->
+      <!-- Weekly Trend Chart (shows selected metric trend) -->
       <div class="card" style="margin-top: 24px;">
         <div class="card-header">
-          <span class="card-title">Complaint Trend</span>
+          <span class="card-title">{{ selectedMetricLabel }} - Weekly Trend</span>
+          <div v-if="selectedMetricTrend" class="trend-summary">
+            <span :class="['wow-badge', getWowClass(selectedMetricTrend.wow_change)]">
+              {{ selectedMetricTrend.wow_change > 0 ? '+' : '' }}{{ selectedMetricTrend.wow_change }}% WoW
+            </span>
+          </div>
         </div>
         <div class="card-body">
+          <div v-if="loadingTrend" class="loading">Loading weekly trends...</div>
           <apexchart
-            v-if="trendData.labels.length"
-            type="area"
+            v-else-if="selectedMetricTrend"
+            type="bar"
             height="300"
-            :options="trendChartOptions"
-            :series="trendSeries"
+            :options="weeklyChartOptions"
+            :series="weeklyChartSeries"
           />
-          <div v-else class="empty-state">No trend data</div>
+          <div v-else class="empty-state">Select a metric above to view weekly trends</div>
         </div>
       </div>
 
@@ -254,7 +236,7 @@ const store = useMainStore()
 const loading = ref(false)
 const loadingComplaints = ref(false)
 const analyzing = ref(false)
-const loadingTrend = ref(null)
+const loadingTrend = ref(false)
 
 const metrics = ref({})
 const comparison = ref(null)
@@ -265,14 +247,20 @@ const severityBreakdown = ref(null)
 const heatmapData = ref(null)
 const recentComplaints = ref([])
 const rootCauseResult = ref(null)
-const weeklyTrends = ref({
-  volume: null,
-  complaint_rate: null,
-  high_severity: null,
-  escalation_rate: null,
-  avg_handling_time: null,
-  fcr_rate: null
-})
+const selectedMetric = ref('volume')
+const weeklyTrendData = ref(null)
+
+const metricLabels = {
+  volume: 'Total Complaints',
+  complaint_rate: 'Complaint Rate',
+  high_severity: 'High Severity',
+  escalation_rate: 'Escalation Rate',
+  avg_handling_time: 'Avg Handle Time',
+  fcr_rate: 'FCR Rate'
+}
+
+const selectedMetricLabel = computed(() => metricLabels[selectedMetric.value] || 'Metric')
+const selectedMetricTrend = computed(() => weeklyTrendData.value)
 
 const maxSeverityCount = computed(() => {
   return Math.max(...severityData.value.map(s => s.count), 1)
@@ -307,26 +295,77 @@ const topPainPointsSeries = computed(() => [{
   data: categoryBreakdown.value.slice(0, 6).map(c => c.percentage)
 }])
 
-const trendChartOptions = computed(() => ({
-  chart: { toolbar: { show: false }, zoom: { enabled: false } },
+// Weekly Chart Options
+const weeklyChartOptions = computed(() => ({
+  chart: {
+    type: 'bar',
+    toolbar: { show: false },
+    animations: { enabled: true }
+  },
+  plotOptions: {
+    bar: {
+      borderRadius: 6,
+      columnWidth: '60%'
+    }
+  },
   colors: ['#DC3545'],
   dataLabels: { enabled: false },
-  stroke: { curve: 'smooth', width: 2 },
-  fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1 } },
   xaxis: {
-    categories: trendData.value.labels.map(d => {
-      const date = new Date(d)
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    }),
-    labels: { rotate: -45 }
+    categories: weeklyTrendData.value?.labels?.map(l => l.replace(/^\d{4}-/, '')) || [],
+    labels: {
+      style: { fontSize: '11px', colors: '#6B7280' }
+    }
   },
-  yaxis: { title: { text: 'Complaints' } }
+  yaxis: {
+    labels: {
+      style: { fontSize: '11px', colors: '#6B7280' },
+      formatter: (val) => {
+        if (selectedMetric.value === 'volume' || selectedMetric.value === 'high_severity') {
+          return val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val
+        }
+        if (['complaint_rate', 'fcr_rate', 'escalation_rate'].includes(selectedMetric.value)) {
+          return `${val}%`
+        }
+        if (selectedMetric.value === 'avg_handling_time') {
+          return `${val}m`
+        }
+        return val
+      }
+    }
+  },
+  grid: {
+    borderColor: '#E5E7EB',
+    strokeDashArray: 3
+  },
+  tooltip: {
+    y: {
+      formatter: (val) => formatMetricValue(val, selectedMetric.value)
+    }
+  }
 }))
 
-const trendSeries = computed(() => [{
-  name: 'Complaints',
-  data: trendData.value.complaint_volume
+const weeklyChartSeries = computed(() => [{
+  name: selectedMetricLabel.value,
+  data: weeklyTrendData.value?.values || []
 }])
+
+function formatMetricValue(val, metric) {
+  if (val === null || val === undefined) return '—'
+  if (metric === 'volume' || metric === 'high_severity') return val.toLocaleString()
+  if (['complaint_rate', 'fcr_rate', 'escalation_rate'].includes(metric)) return `${val}%`
+  if (metric === 'avg_handling_time') return `${val} min`
+  return val.toLocaleString()
+}
+
+function getWowClass(change) {
+  if (change === null || change === undefined) return 'neutral'
+  // For complaints metrics, lower is generally better
+  // Only fcr_rate - higher is better
+  const positiveIsGood = selectedMetric.value === 'fcr_rate'
+  const isUp = change > 0
+  const isGood = positiveIsGood ? isUp : !isUp
+  return isGood ? 'positive' : 'negative'
+}
 
 function getSeverityClass(severity) {
   switch (severity) {
@@ -433,38 +472,39 @@ function drillToCategory(category) {
 
 function handleFilterChange() {
   rootCauseResult.value = null
-  // Clear weekly trends when filters change
-  Object.keys(weeklyTrends.value).forEach(key => {
-    weeklyTrends.value[key] = null
-  })
+  // Clear weekly trend data when filters change
+  weeklyTrendData.value = null
   loadData()
+  // Reload the selected metric trend
+  if (selectedMetric.value) {
+    loadWeeklyTrend(selectedMetric.value)
+  }
 }
 
-async function handleKpiExpand(metricKey) {
-  if (weeklyTrends.value[metricKey]) {
-    // Already loaded
-    return
-  }
+async function selectMetric(metricKey) {
+  selectedMetric.value = metricKey
+  await loadWeeklyTrend(metricKey)
+}
 
-  loadingTrend.value = metricKey
+async function loadWeeklyTrend(metricKey) {
+  loadingTrend.value = true
   try {
     const filters = { ...store.globalFilters, complaintsOnly: true }
     // Map high_severity to volume for API (since we filter by complaints)
     const apiMetric = metricKey === 'high_severity' ? 'volume' : metricKey
     const data = await getWeeklyTrends(apiMetric, filters, 8)
-    weeklyTrends.value[metricKey] = data
+    weeklyTrendData.value = data
   } catch (error) {
     console.error('Failed to load weekly trends:', error)
+    weeklyTrendData.value = null
   } finally {
-    loadingTrend.value = null
+    loadingTrend.value = false
   }
 }
 
-function handleKpiCollapse(metricKey) {
-  // Optionally clear data when collapsed to save memory
-}
-
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
+  // Load initial weekly trend for default metric
+  loadWeeklyTrend(selectedMetric.value)
 })
 </script>
