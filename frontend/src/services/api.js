@@ -199,4 +199,24 @@ export async function getAgentProfile(agentId, filters = {}) {
   return response.data
 }
 
+// AI Summary - Executive Brief
+export async function getAISummary(filters = {}) {
+  const response = await api.post('/ai/summary', { filters })
+  return response.data
+}
+
+// AI Enhanced Root Cause
+export async function getEnhancedRootCause(rootCauseLabel, filters = {}) {
+  const params = {}
+
+  if (filters.lineOfBusiness) params.lob = filters.lineOfBusiness
+  if (filters.callReason) params.call_reason = filters.callReason
+  if (filters.product) params.product = filters.product
+  if (filters.region) params.region = filters.region
+
+  const encodedLabel = encodeURIComponent(rootCauseLabel)
+  const response = await api.get(`/ai/root-cause/${encodedLabel}`, { params })
+  return response.data
+}
+
 export default api

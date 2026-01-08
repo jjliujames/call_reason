@@ -7,6 +7,10 @@
           <option value="region">Region</option>
           <option value="channel">Channel</option>
           <option value="customer_segment">Customer Segment</option>
+          <option value="call_reason">Call Reason</option>
+          <option value="root_cause_label">Root Cause</option>
+          <option value="product">Product</option>
+          <option value="line_of_business">Line of Business</option>
         </select>
       </div>
     </div>
@@ -81,7 +85,11 @@ const loading = ref(false)
 const segmentLabels = {
   region: 'Region',
   channel: 'Channel',
-  customer_segment: 'Customer Segment'
+  customer_segment: 'Customer Segment',
+  call_reason: 'Call Reason',
+  root_cause_label: 'Root Cause',
+  product: 'Product',
+  line_of_business: 'Line of Business'
 }
 
 const chartOptions = computed(() => ({

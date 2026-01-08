@@ -13,6 +13,13 @@
     />
 
     <div class="page-content">
+      <!-- AI Executive Summary Panel -->
+      <AISummaryPanel
+        :filters="store.globalFilters"
+        :auto-generate="true"
+        @generated="handleAISummaryGenerated"
+      />
+
       <!-- Enhanced KPI Summary - Single Row (6 KPIs) -->
       <div class="kpi-grid-6">
         <KpiCard
@@ -117,6 +124,7 @@ import BreadcrumbBar from '../components/BreadcrumbBar.vue'
 import GlobalFilterBar from '../components/GlobalFilterBar.vue'
 import KpiCard from '../components/KpiCard.vue'
 import AnalysisSection from '../components/AnalysisSection.vue'
+import AISummaryPanel from '../components/AISummaryPanel.vue'
 import { useMainStore } from '../stores/main'
 import { getMetrics, getTrends, getMetricsComparison, getWeeklyTrends } from '../services/api'
 
@@ -287,6 +295,12 @@ function handleAnalysisFilterChange(newFilters) {
   // Update global filters when Analysis Section selection changes
   store.setGlobalFilters(newFilters)
   loadData()
+}
+
+function handleAISummaryGenerated(response) {
+  // Optional: handle AI summary generation completion
+  // Could update metrics or highlight anomalies
+  console.log('AI Summary generated:', response.summary?.key_finding)
 }
 
 onMounted(async () => {

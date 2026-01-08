@@ -18,6 +18,7 @@ from data_generator import (
     get_interaction_by_id, get_interaction_index, AGENTS, AGENT_LOOKUP
 )
 from root_cause_engine import generate_ai_summary, analyze_root_causes
+from ai_service import generate_executive_summary, generate_enhanced_root_cause
 
 app = FastAPI(title="Call Center Insights API", version="1.0.0")
 
@@ -906,6 +907,204 @@ def get_metrics_comparison(
         "current": current,
         "previous": previous,
         "deltas": deltas
+    }
+
+
+class AISummaryRequest(BaseModel):
+    filters: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/ai/summary")
+def get_ai_summary(request: AISummaryRequest = None):
+    """Generate AI executive summary for current data view."""
+    all_interactions = get_all_interactions()
+
+    # Apply filters if provided
+    filters = request.filters if request else {}
+    if filters:
+        filtered = filter_interactions(
+            all_interactions,
+            from_date=filters.get("from_date"),
+            to_date=filters.get("to_date"),
+            line_of_business=filters.get("lineOfBusiness") or filters.get("line_of_business"),
+            call_reason=filters.get("callReason") or filters.get("call_reason"),
+            product=filters.get("product"),
+            region=filters.get("region"),
+            team_leader=filters.get("team_leader"),
+            agent_id=filters.get("agent_id"),
+            complaints_only=filters.get("complaints_only", False),
+            channel=filters.get("channel"),
+            segment=filters.get("segment")
+        )
+    else:
+        filtered = all_interactions
+
+    if not filtered:
+        return {
+            "success": False,
+            "summary": {
+                "key_finding": "No data available for the selected filters.",
+                "details": [],
+                "actions": [],
+                "positive_trends": [],
+                "anomalies": [],
+                "generated_summary": "No data available for analysis.",
+                "confidence": 0
+            }
+        }
+
+    # Calculate current metrics
+    total = len(filtered)
+    complaints = [i for i in filtered if i["is_complaint"]]
+    complaint_count = len(complaints)
+    resolved = sum(1 for i in filtered if i["resolved_on_first_contact"])
+    escalated = sum(1 for i in filtered if i["escalated"])
+    handling_time = sum(i["handling_time_seconds"] for i in filtered)
+    digital_eligible = [i for i in filtered if i["digital_eligible"]]
+    deflection_success = sum(1 for i in digital_eligible if i["deflection_success"])
+    total_cost = sum(i["estimated_cost_dollars"] for i in filtered)
+    high_severity = sum(1 for i in complaints if i.get("complaint_severity") == "High")
+
+    metrics = {
+        "total_interactions": total,
+        "total_complaints": complaint_count,
+        "complaint_rate": round(complaint_count / total * 100, 1) if total > 0 else 0,
+        "avg_handling_time_minutes": round(handling_time / total / 60, 2) if total > 0 else 0,
+        "fcr_rate": round(resolved / total * 100, 1) if total > 0 else 0,
+        "escalation_rate": round(escalated / total * 100, 1) if total > 0 else 0,
+        "digital_deflection_rate": round(deflection_success / len(digital_eligible) * 100, 1) if digital_eligible else 0,
+        "cost_per_call": round(total_cost / total, 2) if total > 0 else 0,
+        "total_cost": round(total_cost, 2),
+        "high_severity_count": high_severity
+    }
+
+    # Get root cause analysis
+    root_cause_result = analyze_root_causes(complaints if complaints else filtered[:500], get_agent_lookup())
+    root_causes = root_cause_result.get("root_causes", [])
+
+    # Try to get comparison data (previous 7 days vs current 7 days)
+    comparison = None
+    try:
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        current_to = now
+        current_from = now - timedelta(days=7)
+        previous_to = current_from - timedelta(days=1)
+        previous_from = previous_to - timedelta(days=6)
+
+        current_filtered = filter_interactions(
+            all_interactions,
+            from_date=current_from.strftime("%Y-%m-%d"),
+            to_date=current_to.strftime("%Y-%m-%d"),
+            line_of_business=filters.get("lineOfBusiness") or filters.get("line_of_business") if filters else None,
+            call_reason=filters.get("callReason") or filters.get("call_reason") if filters else None,
+            product=filters.get("product") if filters else None,
+            region=filters.get("region") if filters else None
+        )
+
+        previous_filtered = filter_interactions(
+            all_interactions,
+            from_date=previous_from.strftime("%Y-%m-%d"),
+            to_date=previous_to.strftime("%Y-%m-%d"),
+            line_of_business=filters.get("lineOfBusiness") or filters.get("line_of_business") if filters else None,
+            call_reason=filters.get("callReason") or filters.get("call_reason") if filters else None,
+            product=filters.get("product") if filters else None,
+            region=filters.get("region") if filters else None
+        )
+
+        if current_filtered and previous_filtered:
+            curr_complaints = sum(1 for i in current_filtered if i["is_complaint"])
+            prev_complaints = sum(1 for i in previous_filtered if i["is_complaint"])
+            curr_rate = curr_complaints / len(current_filtered) * 100 if current_filtered else 0
+            prev_rate = prev_complaints / len(previous_filtered) * 100 if previous_filtered else 0
+
+            curr_resolved = sum(1 for i in current_filtered if i["resolved_on_first_contact"])
+            prev_resolved = sum(1 for i in previous_filtered if i["resolved_on_first_contact"])
+            curr_fcr = curr_resolved / len(current_filtered) * 100 if current_filtered else 0
+            prev_fcr = prev_resolved / len(previous_filtered) * 100 if previous_filtered else 0
+
+            comparison = {
+                "deltas": {
+                    "complaint_rate": {
+                        "absolute": round(curr_rate - prev_rate, 1),
+                        "percentage": round((curr_rate - prev_rate) / prev_rate * 100, 1) if prev_rate else 0
+                    },
+                    "fcr_rate": {
+                        "absolute": round(curr_fcr - prev_fcr, 1),
+                        "percentage": round((curr_fcr - prev_fcr) / prev_fcr * 100, 1) if prev_fcr else 0
+                    }
+                }
+            }
+    except Exception:
+        pass
+
+    # Generate AI summary
+    summary = generate_executive_summary(
+        metrics=metrics,
+        root_causes=root_causes,
+        comparison=comparison,
+        filters=filters
+    )
+
+    return {
+        "success": True,
+        "summary": summary,
+        "metrics": metrics,
+        "filter_context": filters
+    }
+
+
+@app.get("/api/ai/root-cause/{root_cause_label}")
+def get_enhanced_root_cause(
+    root_cause_label: str,
+    line_of_business: Optional[str] = Query(None, alias="lob"),
+    call_reason: Optional[str] = None,
+    product: Optional[str] = None,
+    region: Optional[str] = None
+):
+    """Get AI-enhanced analysis for a specific root cause category."""
+    all_interactions = get_all_interactions()
+
+    # Filter to complaints with this root cause
+    filtered = filter_interactions(
+        all_interactions,
+        line_of_business=line_of_business,
+        call_reason=call_reason,
+        product=product,
+        region=region,
+        complaints_only=True
+    )
+
+    # Get interactions matching this root cause
+    rc_interactions = [i for i in filtered if i.get("root_cause_label") == root_cause_label]
+
+    if not rc_interactions:
+        raise HTTPException(status_code=404, detail="No data found for this root cause category")
+
+    # Get base root cause analysis
+    root_cause_result = analyze_root_causes(rc_interactions, get_agent_lookup())
+    root_causes = root_cause_result.get("root_causes", [])
+
+    # Find the matching root cause
+    base_rc = next((rc for rc in root_causes if rc["root_cause_label"] == root_cause_label), None)
+
+    if not base_rc:
+        # Create minimal base if not found
+        base_rc = {
+            "root_cause_label": root_cause_label,
+            "frequency": len(rc_interactions),
+            "percentage": 100.0,
+            "concentration": "Systemic",
+            "top_agents": []
+        }
+
+    # Enhance with AI analysis
+    enhanced = generate_enhanced_root_cause(base_rc, rc_interactions)
+
+    return {
+        "success": True,
+        "root_cause": enhanced,
+        "interaction_count": len(rc_interactions)
     }
 
 
