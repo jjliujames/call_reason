@@ -13,8 +13,8 @@
     />
 
     <div class="page-content">
-      <!-- Enhanced KPI Summary - Row 1 -->
-      <div class="kpi-grid-enhanced">
+      <!-- Enhanced KPI Summary - Single Row (6 KPIs) -->
+      <div class="kpi-grid-6">
         <KpiCard
           label="Total Complaints"
           :value="comparison?.current?.total_complaints || metrics.total_complaints || 0"
@@ -24,6 +24,12 @@
           variant="danger"
           :sparkline-data="trendData.complaint_volume"
           sparkline-color="#DC3545"
+          :expandable="true"
+          metric-key="volume"
+          :weekly-trend-data="weeklyTrends.volume"
+          :loading-trend="loadingTrend === 'volume'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="Complaint Rate"
@@ -32,6 +38,12 @@
           :delta="comparison?.deltas?.complaint_rate?.absolute"
           :is-positive-good="false"
           variant="warning"
+          :expandable="true"
+          metric-key="complaint_rate"
+          :weekly-trend-data="weeklyTrends.complaint_rate"
+          :loading-trend="loadingTrend === 'complaint_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="High Severity"
@@ -40,7 +52,13 @@
           :delta="comparison?.deltas?.high_severity_count?.absolute"
           :is-positive-good="false"
           variant="danger"
-          subtext="Critical complaints requiring immediate attention"
+          tooltip="Critical complaints requiring immediate attention"
+          :expandable="true"
+          metric-key="volume"
+          :weekly-trend-data="weeklyTrends.high_severity"
+          :loading-trend="loadingTrend === 'high_severity'"
+          @expand="(key) => handleKpiExpand('high_severity')"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="Escalation Rate"
@@ -48,17 +66,25 @@
           format="percent"
           :delta="comparison?.deltas?.escalation_rate?.absolute"
           :is-positive-good="false"
+          :expandable="true"
+          metric-key="escalation_rate"
+          :weekly-trend-data="weeklyTrends.escalation_rate"
+          :loading-trend="loadingTrend === 'escalation_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
-      </div>
-
-      <!-- Enhanced KPI Summary - Row 2 -->
-      <div class="kpi-grid-enhanced" style="margin-top: 16px;">
         <KpiCard
           label="Avg Handle Time"
           :value="comparison?.current?.avg_handling_time_minutes || metrics.avg_handling_time_minutes || 0"
           format="time"
           :delta="comparison?.deltas?.avg_handling_time_minutes?.absolute"
           :is-positive-good="false"
+          :expandable="true"
+          metric-key="avg_handling_time"
+          :weekly-trend-data="weeklyTrends.avg_handling_time"
+          :loading-trend="loadingTrend === 'avg_handling_time'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="FCR Rate"
@@ -67,20 +93,12 @@
           :delta="comparison?.deltas?.fcr_rate?.absolute"
           :is-positive-good="true"
           :variant="(metrics.fcr_rate || 0) < 50 ? 'danger' : (metrics.fcr_rate || 0) < 65 ? 'warning' : 'success'"
-        />
-        <KpiCard
-          label="Cost of Complaints"
-          :value="comparison?.current?.total_cost || metrics.total_cost || 0"
-          format="currency"
-          :delta="comparison?.deltas?.total_cost?.absolute"
-          :is-positive-good="false"
-        />
-        <KpiCard
-          label="Cost per Complaint"
-          :value="comparison?.current?.cost_per_call || 0"
-          format="currency"
-          :delta="comparison?.deltas?.cost_per_call?.absolute"
-          :is-positive-good="false"
+          :expandable="true"
+          metric-key="fcr_rate"
+          :weekly-trend-data="weeklyTrends.fcr_rate"
+          :loading-trend="loadingTrend === 'fcr_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
       </div>
 
@@ -228,7 +246,7 @@ import KpiCard from '../components/KpiCard.vue'
 import SeverityPyramid from '../components/SeverityPyramid.vue'
 import ComplaintHeatmap from '../components/ComplaintHeatmap.vue'
 import { useMainStore } from '../stores/main'
-import { getMetrics, getTrends, getBreakdown, getInteractions, analyzeRootCauses, getMetricsComparison, getSeverityBreakdown, getComplaintHeatmap } from '../services/api'
+import { getMetrics, getTrends, getBreakdown, getInteractions, analyzeRootCauses, getMetricsComparison, getSeverityBreakdown, getComplaintHeatmap, getWeeklyTrends } from '../services/api'
 
 const router = useRouter()
 const store = useMainStore()
@@ -236,6 +254,7 @@ const store = useMainStore()
 const loading = ref(false)
 const loadingComplaints = ref(false)
 const analyzing = ref(false)
+const loadingTrend = ref(null)
 
 const metrics = ref({})
 const comparison = ref(null)
@@ -246,6 +265,14 @@ const severityBreakdown = ref(null)
 const heatmapData = ref(null)
 const recentComplaints = ref([])
 const rootCauseResult = ref(null)
+const weeklyTrends = ref({
+  volume: null,
+  complaint_rate: null,
+  high_severity: null,
+  escalation_rate: null,
+  avg_handling_time: null,
+  fcr_rate: null
+})
 
 const maxSeverityCount = computed(() => {
   return Math.max(...severityData.value.map(s => s.count), 1)
@@ -406,7 +433,35 @@ function drillToCategory(category) {
 
 function handleFilterChange() {
   rootCauseResult.value = null
+  // Clear weekly trends when filters change
+  Object.keys(weeklyTrends.value).forEach(key => {
+    weeklyTrends.value[key] = null
+  })
   loadData()
+}
+
+async function handleKpiExpand(metricKey) {
+  if (weeklyTrends.value[metricKey]) {
+    // Already loaded
+    return
+  }
+
+  loadingTrend.value = metricKey
+  try {
+    const filters = { ...store.globalFilters, complaintsOnly: true }
+    // Map high_severity to volume for API (since we filter by complaints)
+    const apiMetric = metricKey === 'high_severity' ? 'volume' : metricKey
+    const data = await getWeeklyTrends(apiMetric, filters, 8)
+    weeklyTrends.value[metricKey] = data
+  } catch (error) {
+    console.error('Failed to load weekly trends:', error)
+  } finally {
+    loadingTrend.value = null
+  }
+}
+
+function handleKpiCollapse(metricKey) {
+  // Optionally clear data when collapsed to save memory
 }
 
 onMounted(() => {

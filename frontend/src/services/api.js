@@ -87,6 +87,20 @@ export async function getTrends(filters = {}, aggregation = 'daily') {
   return response.data
 }
 
+// Weekly Trends for KPI expansion
+export async function getWeeklyTrends(metric, filters = {}, weeks = 8) {
+  const params = { metric, weeks }
+
+  if (filters.lineOfBusiness) params.lob = filters.lineOfBusiness
+  if (filters.callReason) params.call_reason = filters.callReason
+  if (filters.product) params.product = filters.product
+  if (filters.region) params.region = filters.region
+  if (filters.complaintsOnly) params.complaints_only = true
+
+  const response = await api.get('/trends/weekly', { params })
+  return response.data
+}
+
 export async function getBreakdown(filters = {}, groupBy = 'line_of_business') {
   const params = { group_by: groupBy }
 

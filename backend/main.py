@@ -470,6 +470,104 @@ def get_trends(
     }
 
 
+@app.get("/api/trends/weekly")
+def get_weekly_trends(
+    metric: str = Query("volume", regex="^(volume|complaint_rate|fcr_rate|avg_handling_time|escalation_rate|transfer_rate)$"),
+    weeks: int = Query(8, ge=4, le=16),
+    line_of_business: Optional[str] = Query(None, alias="lob"),
+    call_reason: Optional[str] = None,
+    product: Optional[str] = None,
+    region: Optional[str] = None,
+    complaints_only: bool = False
+):
+    """Return weekly aggregated trends for a specific metric."""
+    all_interactions = get_all_interactions()
+
+    # Calculate date range for the past N weeks
+    end_date = datetime.now()
+    start_date = end_date - timedelta(weeks=weeks)
+
+    filtered = filter_interactions(
+        all_interactions,
+        from_date=start_date.strftime("%Y-%m-%d"),
+        to_date=end_date.strftime("%Y-%m-%d"),
+        line_of_business=line_of_business,
+        call_reason=call_reason,
+        product=product,
+        region=region,
+        complaints_only=complaints_only
+    )
+
+    # Group by week (ISO week number)
+    weekly = defaultdict(lambda: {
+        "count": 0,
+        "handling_time": 0,
+        "resolved": 0,
+        "complaints": 0,
+        "escalated": 0,
+        "transferred": 0
+    })
+
+    for interaction in filtered:
+        date = datetime.fromisoformat(interaction["timestamp"].replace("Z", ""))
+        # Get ISO week as "YYYY-WXX" format
+        week_key = f"{date.isocalendar()[0]}-W{date.isocalendar()[1]:02d}"
+        week_start = date - timedelta(days=date.weekday())
+
+        weekly[week_key]["week_start"] = week_start.strftime("%Y-%m-%d")
+        weekly[week_key]["count"] += 1
+        weekly[week_key]["handling_time"] += interaction["handling_time_seconds"]
+        if interaction["resolved_on_first_contact"]:
+            weekly[week_key]["resolved"] += 1
+        if interaction["is_complaint"]:
+            weekly[week_key]["complaints"] += 1
+        if interaction.get("escalated"):
+            weekly[week_key]["escalated"] += 1
+        if interaction.get("transfer_count", 0) > 0:
+            weekly[week_key]["transferred"] += 1
+
+    # Build response sorted by week
+    sorted_weeks = sorted(weekly.keys())
+
+    labels = []
+    values = []
+
+    for week_key in sorted_weeks:
+        w = weekly[week_key]
+        labels.append(week_key)
+
+        if metric == "volume":
+            values.append(w["count"])
+        elif metric == "complaint_rate":
+            values.append(round(w["complaints"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
+        elif metric == "fcr_rate":
+            values.append(round(w["resolved"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
+        elif metric == "avg_handling_time":
+            values.append(round(w["handling_time"] / w["count"] / 60, 1) if w["count"] > 0 else 0)
+        elif metric == "escalation_rate":
+            values.append(round(w["escalated"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
+        elif metric == "transfer_rate":
+            values.append(round(w["transferred"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
+
+    # Calculate WoW change
+    wow_change = None
+    if len(values) >= 2:
+        current = values[-1]
+        previous = values[-2]
+        if previous != 0:
+            wow_change = round((current - previous) / previous * 100, 1)
+
+    return {
+        "metric": metric,
+        "labels": labels,
+        "values": values,
+        "weeks": weeks,
+        "wow_change": wow_change,
+        "current_value": values[-1] if values else None,
+        "previous_value": values[-2] if len(values) >= 2 else None
+    }
+
+
 @app.get("/api/breakdown")
 def get_breakdown(
     from_date: Optional[str] = Query(None, alias="from"),

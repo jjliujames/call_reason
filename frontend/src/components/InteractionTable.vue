@@ -15,6 +15,14 @@
       <table class="data-table">
         <thead>
           <tr>
+            <th v-if="selectable" class="checkbox-col">
+              <input
+                type="checkbox"
+                :checked="allSelected"
+                :indeterminate="someSelected && !allSelected"
+                @change="toggleSelectAll"
+              />
+            </th>
             <th>Timestamp</th>
             <th>Agent</th>
             <th>Call Reason</th>
@@ -28,8 +36,16 @@
           <tr
             v-for="interaction in interactions"
             :key="interaction.interaction_id"
-            @click="handleRowClick(interaction)"
+            :class="{ 'selected-row': isSelected(interaction.interaction_id) }"
+            @click="handleRowClick($event, interaction)"
           >
+            <td v-if="selectable" class="checkbox-col" @click.stop>
+              <input
+                type="checkbox"
+                :checked="isSelected(interaction.interaction_id)"
+                @change="toggleSelect(interaction)"
+              />
+            </td>
             <td>{{ formatTimestamp(interaction.timestamp) }}</td>
             <td>{{ interaction.agent_name }}</td>
             <td>{{ interaction.call_reason }}</td>
@@ -60,10 +76,31 @@
         </button>
       </div>
     </template>
+
+    <!-- Floating Action Bar -->
+    <Teleport to="body">
+      <Transition name="slide-up">
+        <div v-if="selectable && selectedIds.length > 0" class="selection-action-bar">
+          <div class="selection-info">
+            <span class="selection-count">{{ selectedIds.length }}</span>
+            <span>interactions selected</span>
+          </div>
+          <div class="selection-actions">
+            <button class="btn btn-secondary btn-sm" @click="clearSelection">
+              Clear Selection
+            </button>
+            <button class="btn btn-primary btn-sm" @click="analyzeSelected">
+              Analyze Root Causes
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 const props = defineProps({
@@ -94,11 +131,71 @@ const props = defineProps({
   showPagination: {
     type: Boolean,
     default: true
+  },
+  selectable: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['page-change', 'row-click'])
+const emit = defineEmits(['page-change', 'row-click', 'selection-change', 'analyze-selected'])
 const router = useRouter()
+
+// Selection state
+const selectedIds = ref([])
+
+// Computed
+const allSelected = computed(() => {
+  return props.interactions.length > 0 && selectedIds.value.length === props.interactions.length
+})
+
+const someSelected = computed(() => {
+  return selectedIds.value.length > 0
+})
+
+// Watch for interaction changes to clear invalid selections
+watch(() => props.interactions, () => {
+  const validIds = new Set(props.interactions.map(i => i.interaction_id))
+  selectedIds.value = selectedIds.value.filter(id => validIds.has(id))
+}, { deep: true })
+
+// Methods
+function isSelected(id) {
+  return selectedIds.value.includes(id)
+}
+
+function toggleSelect(interaction) {
+  const id = interaction.interaction_id
+  const index = selectedIds.value.indexOf(id)
+  if (index === -1) {
+    selectedIds.value.push(id)
+  } else {
+    selectedIds.value.splice(index, 1)
+  }
+  emit('selection-change', selectedIds.value, getSelectedInteractions())
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    selectedIds.value = []
+  } else {
+    selectedIds.value = props.interactions.map(i => i.interaction_id)
+  }
+  emit('selection-change', selectedIds.value, getSelectedInteractions())
+}
+
+function clearSelection() {
+  selectedIds.value = []
+  emit('selection-change', [], [])
+}
+
+function getSelectedInteractions() {
+  return props.interactions.filter(i => selectedIds.value.includes(i.interaction_id))
+}
+
+function analyzeSelected() {
+  emit('analyze-selected', selectedIds.value, getSelectedInteractions())
+}
 
 function formatTimestamp(ts) {
   const date = new Date(ts)
@@ -115,8 +212,83 @@ function truncate(str, maxLength) {
   return str.length > maxLength ? str.slice(0, maxLength) + '...' : str
 }
 
-function handleRowClick(interaction) {
+function handleRowClick(event, interaction) {
+  // Don't navigate if clicking on checkbox
+  if (event.target.type === 'checkbox') return
   emit('row-click', interaction)
   router.push(`/interactions/${interaction.interaction_id}`)
 }
 </script>
+
+<style scoped>
+.checkbox-col {
+  width: 40px;
+  text-align: center;
+}
+
+.checkbox-col input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--td-green);
+}
+
+.selected-row {
+  background-color: var(--td-green-light) !important;
+}
+
+.selected-row:hover {
+  background-color: #e6f4ea !important;
+}
+
+/* Floating Action Bar */
+.selection-action-bar {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  z-index: 1000;
+  border: 1px solid var(--td-gray-200);
+}
+
+.selection-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--td-gray-700);
+  font-size: 14px;
+}
+
+.selection-count {
+  background: var(--td-green);
+  color: white;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 16px;
+  font-size: 13px;
+}
+
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Transition */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.3s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px);
+}
+</style>

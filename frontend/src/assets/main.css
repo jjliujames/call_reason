@@ -431,14 +431,33 @@ body {
   margin-bottom: 24px;
 }
 
+.kpi-grid-6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 1400px) {
+  .kpi-grid-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-width: 1200px) {
   .kpi-grid-enhanced {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .kpi-grid-6 {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
 @media (max-width: 768px) {
   .kpi-grid-enhanced {
+    grid-template-columns: 1fr;
+  }
+  .kpi-grid-6 {
     grid-template-columns: 1fr;
   }
 }

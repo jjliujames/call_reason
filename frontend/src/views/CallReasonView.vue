@@ -13,8 +13,8 @@
     />
 
     <div class="page-content">
-      <!-- Enhanced KPI Summary - Row 1 -->
-      <div class="kpi-grid-enhanced">
+      <!-- Enhanced KPI Summary - Single Row (6 KPIs) -->
+      <div class="kpi-grid-6">
         <KpiCard
           label="Call Volume"
           :value="comparison?.current?.total_interactions || metrics.total_interactions || 0"
@@ -25,6 +25,12 @@
           variant="highlight"
           :sparkline-data="trendData.volume"
           sparkline-color="#00843D"
+          :expandable="true"
+          metric-key="volume"
+          :weekly-trend-data="weeklyTrends.volume"
+          :loading-trend="loadingTrend === 'volume'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="Complaint Rate"
@@ -33,6 +39,12 @@
           :delta="comparison?.deltas?.complaint_rate?.absolute"
           :is-positive-good="false"
           :variant="(metrics.complaint_rate || 0) > 25 ? 'danger' : (metrics.complaint_rate || 0) > 18 ? 'warning' : 'default'"
+          :expandable="true"
+          metric-key="complaint_rate"
+          :weekly-trend-data="weeklyTrends.complaint_rate"
+          :loading-trend="loadingTrend === 'complaint_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="FCR Rate"
@@ -41,31 +53,25 @@
           :delta="comparison?.deltas?.fcr_rate?.absolute"
           :is-positive-good="true"
           :variant="(metrics.fcr_rate || 0) < 60 ? 'danger' : (metrics.fcr_rate || 0) < 75 ? 'warning' : 'success'"
+          :expandable="true"
+          metric-key="fcr_rate"
+          :weekly-trend-data="weeklyTrends.fcr_rate"
+          :loading-trend="loadingTrend === 'fcr_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
-        <KpiCard
-          label="Cost per Call"
-          :value="comparison?.current?.cost_per_call || 0"
-          format="currency"
-          :delta="comparison?.deltas?.cost_per_call?.absolute"
-          :is-positive-good="false"
-        />
-      </div>
-
-      <!-- Enhanced KPI Summary - Row 2 -->
-      <div class="kpi-grid-enhanced" style="margin-top: 16px;">
         <KpiCard
           label="Avg Handle Time"
           :value="comparison?.current?.avg_handling_time_minutes || metrics.avg_handling_time_minutes || 0"
           format="time"
           :delta="comparison?.deltas?.avg_handling_time_minutes?.absolute"
           :is-positive-good="false"
-        />
-        <KpiCard
-          label="Digital Deflection"
-          :value="comparison?.current?.digital_deflection_rate || metrics.deflection_rate || 0"
-          format="percent"
-          :delta="comparison?.deltas?.digital_deflection_rate?.absolute"
-          :is-positive-good="true"
+          :expandable="true"
+          metric-key="avg_handling_time"
+          :weekly-trend-data="weeklyTrends.avg_handling_time"
+          :loading-trend="loadingTrend === 'avg_handling_time'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="Transfer Rate"
@@ -73,6 +79,12 @@
           format="percent"
           :delta="comparison?.deltas?.transfer_rate?.absolute"
           :is-positive-good="false"
+          :expandable="true"
+          metric-key="transfer_rate"
+          :weekly-trend-data="weeklyTrends.transfer_rate"
+          :loading-trend="loadingTrend === 'transfer_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
         <KpiCard
           label="Escalation Rate"
@@ -80,6 +92,12 @@
           format="percent"
           :delta="comparison?.deltas?.escalation_rate?.absolute"
           :is-positive-good="false"
+          :expandable="true"
+          metric-key="escalation_rate"
+          :weekly-trend-data="weeklyTrends.escalation_rate"
+          :loading-trend="loadingTrend === 'escalation_rate'"
+          @expand="handleKpiExpand"
+          @collapse="handleKpiCollapse"
         />
       </div>
 
@@ -218,19 +236,28 @@ import BreadcrumbBar from '../components/BreadcrumbBar.vue'
 import GlobalFilterBar from '../components/GlobalFilterBar.vue'
 import KpiCard from '../components/KpiCard.vue'
 import { useMainStore } from '../stores/main'
-import { getMetrics, getTrends, getBreakdown, getMetricsComparison } from '../services/api'
+import { getMetrics, getTrends, getBreakdown, getMetricsComparison, getWeeklyTrends } from '../services/api'
 
 const router = useRouter()
 const store = useMainStore()
 
 const loading = ref(false)
 const loadingBreakdown = ref(false)
+const loadingTrend = ref(null)
 
 const metrics = ref({})
 const comparison = ref(null)
 const trendData = ref({ labels: [], volume: [], complaint_volume: [] })
 const breakdown = ref([])
 const activeTab = ref('line_of_business')
+const weeklyTrends = ref({
+  volume: null,
+  complaint_rate: null,
+  fcr_rate: null,
+  avg_handling_time: null,
+  transfer_rate: null,
+  escalation_rate: null
+})
 
 const breadcrumbs = computed(() => {
   const crumbs = [{ label: 'Call Reason Analysis' }]
@@ -379,7 +406,34 @@ function handleDrillDown(item) {
 }
 
 function handleFilterChange() {
+  // Clear weekly trends when filters change
+  Object.keys(weeklyTrends.value).forEach(key => {
+    weeklyTrends.value[key] = null
+  })
   loadData()
+}
+
+async function handleKpiExpand(metricKey) {
+  if (weeklyTrends.value[metricKey]) {
+    // Already loaded
+    return
+  }
+
+  loadingTrend.value = metricKey
+  try {
+    const filters = store.globalFilters
+    const data = await getWeeklyTrends(metricKey, filters, 8)
+    weeklyTrends.value[metricKey] = data
+  } catch (error) {
+    console.error('Failed to load weekly trends:', error)
+  } finally {
+    loadingTrend.value = null
+  }
+}
+
+function handleKpiCollapse(metricKey) {
+  // Optionally clear data when collapsed to save memory
+  // weeklyTrends.value[metricKey] = null
 }
 
 onMounted(() => {
