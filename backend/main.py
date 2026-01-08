@@ -546,7 +546,7 @@ def get_trends(
 
 @app.get("/api/trends/weekly")
 def get_weekly_trends(
-    metric: str = Query("volume", regex="^(volume|complaint_rate|fcr_rate|avg_handling_time|escalation_rate|transfer_rate)$"),
+    metric: str = Query("volume", regex="^(volume|complaint_rate|fcr_rate|avg_handling_time|escalation_rate|transfer_rate|complaint_volume_rate)$"),
     weeks: int = Query(8, ge=4, le=16),
     line_of_business: Optional[str] = Query(None, alias="lob"),
     call_reason: Optional[str] = None,
@@ -605,6 +605,7 @@ def get_weekly_trends(
 
     labels = []
     values = []
+    rates = []  # For complaint_volume_rate metric - stores complaint rates as data labels
 
     for week_key in sorted_weeks:
         w = weekly[week_key]
@@ -622,6 +623,10 @@ def get_weekly_trends(
             values.append(round(w["escalated"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
         elif metric == "transfer_rate":
             values.append(round(w["transferred"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
+        elif metric == "complaint_volume_rate":
+            # Bars show complaint volume, data labels show complaint rate %
+            values.append(w["complaints"])
+            rates.append(round(w["complaints"] / w["count"] * 100, 1) if w["count"] > 0 else 0)
 
     # Calculate WoW change
     wow_change = None
@@ -631,7 +636,7 @@ def get_weekly_trends(
         if previous != 0:
             wow_change = round((current - previous) / previous * 100, 1)
 
-    return {
+    response = {
         "metric": metric,
         "labels": labels,
         "values": values,
@@ -640,6 +645,12 @@ def get_weekly_trends(
         "current_value": values[-1] if values else None,
         "previous_value": values[-2] if len(values) >= 2 else None
     }
+
+    # Include rates array for complaint_volume_rate metric
+    if metric == "complaint_volume_rate":
+        response["rates"] = rates
+
+    return response
 
 
 @app.get("/api/breakdown")

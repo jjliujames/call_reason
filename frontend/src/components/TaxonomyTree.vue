@@ -6,40 +6,54 @@
     </div>
 
     <div class="tree-content">
-      <!-- Level 1: Lines of Business -->
-      <div v-for="lob in treeData" :key="lob.label" class="tree-node">
+      <!-- Level 1 nodes -->
+      <div v-for="node1 in treeData" :key="node1.label" class="tree-node">
         <div
-          :class="['tree-item', 'level-1', { selected: isSelected('lob', lob.label), expanded: expanded[lob.label] }]"
-          @click="toggleExpand(lob.label)"
+          :class="['tree-item', 'level-1', { selected: isSelected(0, node1.label), expanded: expanded[node1.label] }]"
+          @click="handleNodeClick(node1, 0, [])"
         >
-          <span class="expand-icon">{{ expanded[lob.label] ? '▼' : '▶' }}</span>
-          <span class="node-label">{{ lob.label }}</span>
-          <span class="node-count">{{ lob.count.toLocaleString() }}</span>
+          <span class="expand-icon">{{ hasChildren(node1) ? (expanded[node1.label] ? '▼' : '▶') : '○' }}</span>
+          <span class="node-label">{{ node1.label }}</span>
+          <span class="node-count">{{ node1.count?.toLocaleString() || '0' }}</span>
         </div>
 
-        <!-- Level 2: Call Reasons -->
-        <div v-if="expanded[lob.label]" class="tree-children">
-          <div v-for="reason in lob.children" :key="reason.label" class="tree-node">
+        <!-- Level 2 nodes -->
+        <div v-if="expanded[node1.label] && hasChildren(node1)" class="tree-children">
+          <div v-for="node2 in node1.children" :key="node2.label" class="tree-node">
             <div
-              :class="['tree-item', 'level-2', { selected: isSelected('callReason', reason.label), expanded: expanded[`${lob.label}/${reason.label}`] }]"
-              @click.stop="toggleExpandReason(lob.label, reason.label)"
+              :class="['tree-item', 'level-2', { selected: isSelected(1, node2.label), expanded: expanded[getKey(node1, node2)] }]"
+              @click.stop="handleNodeClick(node2, 1, [node1])"
             >
-              <span class="expand-icon">{{ reason.children?.length ? (expanded[`${lob.label}/${reason.label}`] ? '▼' : '▶') : '○' }}</span>
-              <span class="node-label">{{ reason.label }}</span>
-              <span class="node-count">{{ reason.count.toLocaleString() }}</span>
+              <span class="expand-icon">{{ hasChildren(node2) ? (expanded[getKey(node1, node2)] ? '▼' : '▶') : '○' }}</span>
+              <span class="node-label">{{ node2.label }}</span>
+              <span class="node-count">{{ node2.count?.toLocaleString() || '0' }}</span>
             </div>
 
-            <!-- Level 3: Products -->
-            <div v-if="expanded[`${lob.label}/${reason.label}`] && reason.children?.length" class="tree-children">
-              <div
-                v-for="product in reason.children"
-                :key="product.label"
-                :class="['tree-item', 'level-3', { selected: isSelected('product', product.label) }]"
-                @click.stop="selectProduct(lob.label, reason.label, product.label)"
-              >
-                <span class="leaf-icon">●</span>
-                <span class="node-label">{{ product.label }}</span>
-                <span class="node-count">{{ product.count.toLocaleString() }}</span>
+            <!-- Level 3 nodes -->
+            <div v-if="expanded[getKey(node1, node2)] && hasChildren(node2)" class="tree-children">
+              <div v-for="node3 in node2.children" :key="node3.label" class="tree-node">
+                <div
+                  :class="['tree-item', 'level-3', { selected: isSelected(2, node3.label), expanded: expanded[getKey(node1, node2, node3)] }]"
+                  @click.stop="handleNodeClick(node3, 2, [node1, node2])"
+                >
+                  <span class="expand-icon">{{ hasChildren(node3) ? (expanded[getKey(node1, node2, node3)] ? '▼' : '▶') : '●' }}</span>
+                  <span class="node-label">{{ node3.label }}</span>
+                  <span class="node-count">{{ node3.count?.toLocaleString() || '0' }}</span>
+                </div>
+
+                <!-- Level 4 nodes -->
+                <div v-if="expanded[getKey(node1, node2, node3)] && hasChildren(node3)" class="tree-children">
+                  <div v-for="node4 in node3.children" :key="node4.label" class="tree-node">
+                    <div
+                      :class="['tree-item', 'level-4', { selected: isSelected(3, node4.label) }]"
+                      @click.stop="handleNodeClick(node4, 3, [node1, node2, node3])"
+                    >
+                      <span class="leaf-icon">●</span>
+                      <span class="node-label">{{ node4.label }}</span>
+                      <span class="node-count">{{ node4.count?.toLocaleString() || '0' }}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -56,11 +70,19 @@ const props = defineProps({
   treeData: {
     type: Array,
     required: true
-    // Structure: [{ label, count, children: [{ label, count, children: [...] }] }]
   },
   selectedPath: {
     type: Object,
-    default: () => ({ lob: null, callReason: null, product: null })
+    default: () => ({})
+  },
+  tierConfig: {
+    type: Array,
+    default: () => [
+      { key: 'line_of_business', label: 'Line of Business', level: 1 },
+      { key: 'call_reason', label: 'Call Reason', level: 2 },
+      { key: 'product', label: 'Product', level: 3 },
+      { key: 'region', label: 'Region', level: 4 }
+    ]
   }
 })
 
@@ -69,38 +91,57 @@ const emit = defineEmits(['select'])
 const expanded = ref({})
 
 const hasSelection = computed(() => {
-  return props.selectedPath.lob || props.selectedPath.callReason || props.selectedPath.product
+  return Object.values(props.selectedPath).some(v => v !== null && v !== undefined)
 })
 
-function isSelected(level, value) {
-  return props.selectedPath[level] === value
+function hasChildren(node) {
+  return node.children && node.children.length > 0
 }
 
-function toggleExpand(lobLabel) {
-  expanded.value[lobLabel] = !expanded.value[lobLabel]
-  // Select this LOB when expanding
-  emit('select', { level: 'lob', value: lobLabel, path: { lob: lobLabel, callReason: null, product: null } })
+function getKey(...nodes) {
+  return nodes.map(n => n.label).join('/')
 }
 
-function toggleExpandReason(lobLabel, reasonLabel) {
-  const key = `${lobLabel}/${reasonLabel}`
-  expanded.value[key] = !expanded.value[key]
-  // Ensure parent is expanded
-  expanded.value[lobLabel] = true
-  // Select this call reason
-  emit('select', { level: 'callReason', value: reasonLabel, path: { lob: lobLabel, callReason: reasonLabel, product: null } })
+function isSelected(levelIndex, label) {
+  const tierKey = props.tierConfig[levelIndex]?.key
+  return tierKey && props.selectedPath[tierKey] === label
 }
 
-function selectProduct(lobLabel, reasonLabel, productLabel) {
-  // Ensure parents are expanded
-  expanded.value[lobLabel] = true
-  expanded.value[`${lobLabel}/${reasonLabel}`] = true
-  // Select this product
-  emit('select', { level: 'product', value: productLabel, path: { lob: lobLabel, callReason: reasonLabel, product: productLabel } })
+function handleNodeClick(node, levelIndex, path) {
+  const nodeKey = [...path.map(p => p.label), node.label].join('/')
+
+  // Toggle expansion if node has children
+  if (hasChildren(node)) {
+    expanded.value[nodeKey] = !expanded.value[nodeKey]
+  }
+
+  // Ensure parent nodes are expanded
+  let pathKey = ''
+  path.forEach(item => {
+    pathKey = pathKey ? `${pathKey}/${item.label}` : item.label
+    expanded.value[pathKey] = true
+  })
+
+  // Build selection path
+  const newPath = {}
+  path.forEach((item, index) => {
+    const tierKey = props.tierConfig[index]?.key
+    if (tierKey) {
+      newPath[tierKey] = item.label
+    }
+  })
+
+  // Add current node to selection
+  const nodeTierKey = node.tierKey || props.tierConfig[levelIndex]?.key
+  if (nodeTierKey) {
+    newPath[nodeTierKey] = node.label
+  }
+
+  emit('select', { level: nodeTierKey, value: node.label, path: newPath })
 }
 
 function clearSelection() {
-  emit('select', { level: null, value: null, path: { lob: null, callReason: null, product: null } })
+  emit('select', { level: null, value: null, path: {} })
 }
 </script>
 
@@ -149,6 +190,11 @@ function clearSelection() {
   padding: 8px 0;
 }
 
+.tree-node {
+  /* Container for node and its children */
+  display: block;
+}
+
 .tree-item {
   display: flex;
   align-items: center;
@@ -184,11 +230,18 @@ function clearSelection() {
   color: var(--td-gray-700);
 }
 
+.tree-item.level-4 {
+  padding-left: 68px;
+  font-weight: 400;
+  color: var(--td-gray-600);
+}
+
 .expand-icon {
   font-size: 10px;
   color: var(--td-gray-500);
   width: 12px;
   text-align: center;
+  flex-shrink: 0;
 }
 
 .leaf-icon {
@@ -196,6 +249,7 @@ function clearSelection() {
   color: var(--td-gray-400);
   width: 12px;
   text-align: center;
+  flex-shrink: 0;
 }
 
 .node-label {
@@ -213,9 +267,11 @@ function clearSelection() {
   padding: 2px 6px;
   border-radius: 10px;
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .tree-children {
-  /* Indent children */
+  /* Children container */
+  display: block;
 }
 </style>

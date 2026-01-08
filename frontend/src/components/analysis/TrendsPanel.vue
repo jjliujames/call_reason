@@ -5,6 +5,7 @@
         <label>Metric:</label>
         <select v-model="selectedMetric" @change="loadTrend">
           <option value="volume">Call Volume</option>
+          <option value="complaint_volume_rate">Complaint Volume (Rate)</option>
           <option value="complaint_rate">Complaint Rate</option>
           <option value="fcr_rate">FCR Rate</option>
           <option value="avg_handling_time">Avg Handle Time</option>
@@ -69,6 +70,7 @@ const showExportModal = ref(false)
 
 const metricLabels = {
   volume: 'Call Volume',
+  complaint_volume_rate: 'Complaint Volume (Rate)',
   complaint_rate: 'Complaint Rate',
   fcr_rate: 'FCR Rate',
   avg_handling_time: 'Avg Handle Time',
@@ -84,11 +86,31 @@ const chartOptions = computed(() => ({
   plotOptions: {
     bar: {
       borderRadius: 6,
-      columnWidth: '60%'
+      columnWidth: '60%',
+      dataLabels: {
+        position: 'top'
+      }
     }
   },
   colors: ['#00843D'],
-  dataLabels: { enabled: false },
+  dataLabels: {
+    enabled: true,
+    formatter: (val, opts) => {
+      // For complaint_volume_rate, show the rate % as the label
+      if (selectedMetric.value === 'complaint_volume_rate' && trendData.value?.rates) {
+        const rate = trendData.value.rates[opts.dataPointIndex]
+        return rate !== undefined ? `${rate}%` : ''
+      }
+      // For other metrics, show the formatted value
+      return formatValue(val)
+    },
+    style: {
+      fontSize: '10px',
+      fontWeight: 600,
+      colors: ['#374151']
+    },
+    offsetY: -20
+  },
   xaxis: {
     categories: trendData.value?.labels?.map(l => l.replace(/^\d{4}-/, '')) || [],
     labels: {
@@ -98,7 +120,7 @@ const chartOptions = computed(() => ({
   yaxis: {
     labels: {
       style: { fontSize: '11px', colors: '#6B7280' },
-      formatter: (val) => formatValue(val)
+      formatter: (val) => formatYAxisValue(val)
     }
   },
   grid: {
@@ -107,7 +129,14 @@ const chartOptions = computed(() => ({
   },
   tooltip: {
     y: {
-      formatter: (val) => formatValue(val)
+      formatter: (val, opts) => {
+        // For complaint_volume_rate, show both volume and rate in tooltip
+        if (selectedMetric.value === 'complaint_volume_rate' && trendData.value?.rates) {
+          const rate = trendData.value.rates[opts.dataPointIndex]
+          return `${val.toLocaleString()} complaints (${rate}% rate)`
+        }
+        return formatValue(val)
+      }
     }
   }
 }))
@@ -126,7 +155,7 @@ const exportRows = computed(() => {
 
 function formatValue(val) {
   if (val === null || val === undefined) return '—'
-  if (selectedMetric.value === 'volume') {
+  if (selectedMetric.value === 'volume' || selectedMetric.value === 'complaint_volume_rate') {
     return val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val.toLocaleString()
   }
   if (['complaint_rate', 'fcr_rate', 'transfer_rate', 'escalation_rate'].includes(selectedMetric.value)) {
@@ -138,8 +167,24 @@ function formatValue(val) {
   return val.toLocaleString()
 }
 
+function formatYAxisValue(val) {
+  if (val === null || val === undefined) return '—'
+  if (selectedMetric.value === 'volume' || selectedMetric.value === 'complaint_volume_rate') {
+    return val >= 1000 ? `${(val / 1000).toFixed(1)}k` : val
+  }
+  if (['complaint_rate', 'fcr_rate', 'transfer_rate', 'escalation_rate'].includes(selectedMetric.value)) {
+    return `${val}%`
+  }
+  if (selectedMetric.value === 'avg_handling_time') {
+    return `${val}m`
+  }
+  return val
+}
+
 function getWowClass(change) {
   if (change === null || change === undefined) return 'neutral'
+  // For volume and fcr_rate, higher is better
+  // For complaint_volume_rate, lower is better (fewer complaints)
   const positiveIsGood = ['volume', 'fcr_rate'].includes(selectedMetric.value)
   const isUp = change > 0
   return (positiveIsGood ? isUp : !isUp) ? 'positive' : 'negative'

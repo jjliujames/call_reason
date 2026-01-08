@@ -104,7 +104,7 @@
       <!-- Analysis Section -->
       <AnalysisSection
         :filters="store.globalFilters"
-        :tabs="['trends', 'segments', 'products', 'root_causes']"
+        :tabs="['trends', 'segments', 'products', 'root_causes', 'interactions']"
         @filter-change="handleAnalysisFilterChange"
       />
     </div>

@@ -12,6 +12,12 @@
             <h1 class="page-title">Interaction {{ interaction.interaction_id.slice(0, 8) }}...</h1>
             <p class="page-subtitle">{{ formatFullTimestamp(interaction.timestamp) }}</p>
           </div>
+          <div>
+            <button class="listen-btn" @click="openCallRecording">
+              <span class="listen-icon">🎧</span>
+              Listen to Call
+            </button>
+          </div>
         </div>
         <div class="header-badges">
           <span class="badge badge-blue">{{ interaction.channel }}</span>
@@ -143,6 +149,28 @@
                 <p style="font-size: 14px; line-height: 1.7; color: var(--td-gray-700);">
                   {{ interaction.agent_notes }}
                 </p>
+              </div>
+            </div>
+
+            <!-- Call Transcript Card -->
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">Call Transcript</span>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <span class="badge badge-blue">{{ Math.round(interaction.handling_time_seconds / 60) }} min</span>
+                  <button class="btn-sm" @click="openCallRecording">🎧 Listen</button>
+                </div>
+              </div>
+              <div class="card-body transcript-body">
+                <div class="transcript-container">
+                  <div v-for="(line, index) in callTranscript" :key="index" class="transcript-line">
+                    <div class="transcript-speaker" :class="line.speaker === 'Agent' ? 'agent' : 'customer'">
+                      <span class="speaker-label">{{ line.speaker }}</span>
+                      <span class="transcript-time">{{ line.time }}</span>
+                    </div>
+                    <div class="transcript-text">{{ line.text }}</div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -470,6 +498,131 @@ const severityClass = computed(() => {
   }
 })
 
+// Generate fake call transcript based on interaction data
+const callTranscript = computed(() => {
+  if (!interaction.value) return []
+
+  const i = interaction.value
+  const duration = Math.round(i.handling_time_seconds / 60)
+  const isComplaint = i.is_complaint
+  const callReason = i.call_reason
+  const product = i.product
+  const agentName = i.agent_name?.split(' ')[0] || 'Agent'
+
+  // Build contextual transcript based on interaction data
+  const transcriptTemplates = {
+    greeting: [
+      { speaker: 'Agent', time: '0:00', text: `Thank you for calling TD Bank, my name is ${agentName}. How may I assist you today?` },
+      { speaker: 'Customer', time: '0:08', text: `Hi ${agentName}, I'm calling about my ${product.toLowerCase()}.` }
+    ],
+    issue: generateIssueDialogue(callReason, product, isComplaint, i.complaint_category),
+    resolution: generateResolutionDialogue(i.resolved_on_first_contact, i.escalated, i.transfer_count, duration),
+    closing: [
+      { speaker: 'Agent', time: formatTranscriptTime(duration - 1), text: i.resolved_on_first_contact
+        ? 'Is there anything else I can help you with today?'
+        : 'I\'ve escalated this to our specialist team. They\'ll be in touch within 24-48 hours.' },
+      { speaker: 'Customer', time: formatTranscriptTime(duration - 0.5), text: i.resolved_on_first_contact
+        ? 'No, that\'s all. Thank you for your help!'
+        : 'Alright, I\'ll wait for their call. Thanks.' },
+      { speaker: 'Agent', time: formatTranscriptTime(duration), text: 'Thank you for banking with TD. Have a great day!' }
+    ]
+  }
+
+  return [
+    ...transcriptTemplates.greeting,
+    ...transcriptTemplates.issue,
+    ...transcriptTemplates.resolution,
+    ...transcriptTemplates.closing
+  ]
+})
+
+function generateIssueDialogue(callReason, product, isComplaint, complaintCategory) {
+  const dialogues = []
+  const timeOffset = 0.3
+
+  if (isComplaint) {
+    dialogues.push(
+      { speaker: 'Customer', time: formatTranscriptTime(timeOffset), text: `I have a serious concern I need addressed. I'm really frustrated with the service I've been receiving.` },
+      { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.2), text: `I'm sorry to hear that. I completely understand your frustration, and I want to help resolve this for you. Can you tell me more about what happened?` }
+    )
+
+    if (complaintCategory === 'Fees & Pricing') {
+      dialogues.push(
+        { speaker: 'Customer', time: formatTranscriptTime(timeOffset + 0.5), text: `I was charged a fee that I don't think is fair. I've been a customer for years and this seems unreasonable.` },
+        { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.8), text: `Let me pull up your account and review the charges. I'll see what I can do to help with this.` }
+      )
+    } else if (complaintCategory === 'Digital Experience') {
+      dialogues.push(
+        { speaker: 'Customer', time: formatTranscriptTime(timeOffset + 0.5), text: `The app keeps crashing when I try to make transfers. I've tried multiple times and it's very frustrating.` },
+        { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.8), text: `I apologize for the inconvenience with our app. Let me check if there are any known issues and help you complete your transfer.` }
+      )
+    } else {
+      dialogues.push(
+        { speaker: 'Customer', time: formatTranscriptTime(timeOffset + 0.5), text: `The issue has been ongoing and I haven't been able to get it resolved despite multiple attempts.` },
+        { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.8), text: `I understand, and I'm here to help get this sorted out for you today. Let me look into this right away.` }
+      )
+    }
+  } else {
+    // Non-complaint regular inquiry
+    if (callReason.includes('Account')) {
+      dialogues.push(
+        { speaker: 'Customer', time: formatTranscriptTime(timeOffset), text: `I need some information about my account. Can you help me check my recent transactions?` },
+        { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.3), text: `Of course! I'd be happy to help you with that. Let me pull up your account details.` }
+      )
+    } else if (callReason.includes('Payment') || callReason.includes('Transfer')) {
+      dialogues.push(
+        { speaker: 'Customer', time: formatTranscriptTime(timeOffset), text: `I need to make a payment and wanted to confirm the process with your help.` },
+        { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.3), text: `Sure, I can assist you with that payment. Let me guide you through the process.` }
+      )
+    } else {
+      dialogues.push(
+        { speaker: 'Customer', time: formatTranscriptTime(timeOffset), text: `I have a question about my ${product.toLowerCase()} and was hoping you could help clarify something.` },
+        { speaker: 'Agent', time: formatTranscriptTime(timeOffset + 0.3), text: `Absolutely, I'm here to help. What would you like to know?` }
+      )
+    }
+  }
+
+  return dialogues
+}
+
+function generateResolutionDialogue(resolved, escalated, transfers, duration) {
+  const dialogues = []
+  const midPoint = duration / 2
+
+  if (transfers > 0) {
+    dialogues.push(
+      { speaker: 'Agent', time: formatTranscriptTime(midPoint), text: `I'll need to transfer you to a specialist who can better assist with this. Please hold for a moment.` },
+      { speaker: 'Customer', time: formatTranscriptTime(midPoint + 0.2), text: `Okay, I'll wait.` },
+      { speaker: 'Agent', time: formatTranscriptTime(midPoint + 1), text: `Thank you for holding. I've connected with our specialist team.` }
+    )
+  }
+
+  if (resolved) {
+    dialogues.push(
+      { speaker: 'Agent', time: formatTranscriptTime(duration - 2), text: `I've processed your request and everything is now updated in the system.` },
+      { speaker: 'Customer', time: formatTranscriptTime(duration - 1.8), text: `Great, that's exactly what I needed. Thank you so much!` }
+    )
+  } else if (escalated) {
+    dialogues.push(
+      { speaker: 'Agent', time: formatTranscriptTime(duration - 2), text: `This requires additional review by our management team. I'm escalating this to ensure it gets the attention it deserves.` },
+      { speaker: 'Customer', time: formatTranscriptTime(duration - 1.8), text: `I appreciate you taking this seriously.` }
+    )
+  }
+
+  return dialogues
+}
+
+function formatTranscriptTime(minutes) {
+  const mins = Math.floor(minutes)
+  const secs = Math.round((minutes - mins) * 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+function openCallRecording() {
+  // Simulate opening call recording - in real app would open audio player or external system
+  alert('Call Recording\n\nIn a production environment, this would open the call recording in your telephony system or audio player.\n\nRecording ID: ' + interaction.value?.interaction_id)
+}
+
 async function loadInteraction() {
   loading.value = true
   try {
@@ -582,3 +735,102 @@ watch(() => route.params.id, () => {
   loadInteraction()
 })
 </script>
+
+<style scoped>
+.listen-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  background: var(--td-green);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.listen-btn:hover {
+  background: #006B31;
+}
+
+.listen-icon {
+  font-size: 16px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--td-gray-700);
+  background: white;
+  border: 1px solid var(--td-gray-300);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-sm:hover {
+  background: var(--td-gray-50);
+  border-color: var(--td-gray-400);
+}
+
+.transcript-body {
+  padding: 0 !important;
+}
+
+.transcript-container {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.transcript-line {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--td-gray-100);
+}
+
+.transcript-line:last-child {
+  border-bottom: none;
+}
+
+.transcript-speaker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.transcript-speaker.agent .speaker-label {
+  color: var(--td-green);
+  font-weight: 600;
+}
+
+.transcript-speaker.customer .speaker-label {
+  color: #2563EB;
+  font-weight: 600;
+}
+
+.speaker-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.transcript-time {
+  font-size: 11px;
+  color: var(--td-gray-400);
+}
+
+.transcript-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--td-gray-800);
+  padding-left: 0;
+}
+
+.transcript-line:nth-child(odd) {
+  background: var(--td-gray-50);
+}
+</style>
